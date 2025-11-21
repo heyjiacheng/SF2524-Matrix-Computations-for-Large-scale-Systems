@@ -138,143 +138,143 @@ println("Time for Power Method on X_c: $time_pm_B seconds")
 eigenface_1 = reshape(v_1, 64, 64)
 save("eigenface1.png", normalize_image(eigenface_1))
 
-# #=
-# Use the Arnoldi method to compute the five largest eigenvalues and corresponding eigenvectors of C
-# =#
-# function arnoldi(Xc, v0; m=35)
-#     n = size(Xc, 1)
-#     V = zeros(Float64, n, m + 1)
-#     H = zeros(Float64, m + 1, m)
-#     V[:, 1] = v0 / norm(v0)
+#=
+Use the Arnoldi method to compute the five largest eigenvalues and corresponding eigenvectors of C
+=#
+function arnoldi(Xc, v0; m=35)
+    n = size(Xc, 1)
+    V = zeros(Float64, n, m + 1)
+    H = zeros(Float64, m + 1, m)
+    V[:, 1] = v0 / norm(v0)
 
-#     mcols = size(Xc, 2)
-#     mulC_local(v) = (Xc * (Xc' * v)) / (mcols - 1)
+    mcols = size(Xc, 2)
+    mulC_local(v) = (Xc * (Xc' * v)) / (mcols - 1)
 
-#     for k in 1:m
-#         w = mulC_local(view(V, :, k))
+    for k in 1:m
+        w = mulC_local(view(V, :, k))
 
-#         for j in 1:k
-#             H[j, k] = dot(view(V, :, j), w)
-#             w -= H[j, k] * view(V, :, j)
-#         end
+        for j in 1:k
+            H[j, k] = dot(view(V, :, j), w)
+            w -= H[j, k] * view(V, :, j)
+        end
 
-#         H[k + 1, k] = norm(w)
-#         if H[k + 1, k] == 0
-#             println("Arnoldi terminated early at step $k")
-#             return V[:, 1:k], H[1:k, 1:k-1]
-#         end
+        H[k + 1, k] = norm(w)
+        if H[k + 1, k] == 0
+            println("Arnoldi terminated early at step $k")
+            return V[:, 1:k], H[1:k, 1:k-1]
+        end
         
-#         V[:, k + 1] = w / H[k + 1, k]
-#     end
+        V[:, k + 1] = w / H[k + 1, k]
+    end
 
-#     return V, H
-# end
+    return V, H
+end
 
-# function arnoldi_residuals(Xc, v0; msteps=35, num=5)
-#     n = size(Xc, 1)
-#     V, H = arnoldi(Xc, v0; m=msteps)
+function arnoldi_residuals(Xc, v0; msteps=35, num=5)
+    n = size(Xc, 1)
+    V, H = arnoldi(Xc, v0; m=msteps)
 
-#     kmax = size(H, 2)
+    kmax = size(H, 2)
 
-#     residuals = zeros(Float64, num, msteps)
+    residuals = zeros(Float64, num, msteps)
 
-#     m = size(Xc, 2)
+    m = size(Xc, 2)
 
-#     for k in 1:kmax
-#         H_k = H[1:k, 1:k]
-#         eigvals_H, eigvecs_H = eigen(H_k)
-#         idx = sortperm(abs.(eigvals_H), rev=true)
-#         λ_sorted = eigvals_H[idx]
-#         y_sorted = eigvecs_H[:, idx]
+    for k in 1:kmax
+        H_k = H[1:k, 1:k]
+        eigvals_H, eigvecs_H = eigen(H_k)
+        idx = sortperm(abs.(eigvals_H), rev=true)
+        λ_sorted = eigvals_H[idx]
+        y_sorted = eigvecs_H[:, idx]
 
-#         mulC_local(v) = (Xc * (Xc' * v)) / (m - 1)
+        mulC_local(v) = (Xc * (Xc' * v)) / (m - 1)
 
-#         num_k = min(num, k)
+        num_k = min(num, k)
 
-#         for j in 1:num_k
-#             λ_j = λ_sorted[j]
-#             y_j = y_sorted[:, j]
+        for j in 1:num_k
+            λ_j = λ_sorted[j]
+            y_j = y_sorted[:, j]
 
-#             Vk = V[:, 1:k]
-#             x = Vk * y_j
+            Vk = V[:, 1:k]
+            x = Vk * y_j
 
-#             Cx = mulC_local(x)
-#             r = norm(Cx - λ_j * x) / norm(Cx)
+            Cx = mulC_local(x)
+            r = norm(Cx - λ_j * x) / norm(Cx)
 
-#             residuals[j, k] = r
-#         end
-#     end
+            residuals[j, k] = r
+        end
+    end
 
-#     return residuals, V, H
-# end
+    return residuals, V, H
+end
 
-# msteps = 35
-# num = 5
-# v_0 = rand(size(X_c, 1))
-# residuals, V, H = arnoldi_residuals(X_c, v_0; msteps=msteps, num=num)
-# println("Residuals matrix:")
-# println(residuals)
+msteps = 35
+num = 5
+v_0 = rand(size(X_c, 1))
+residuals, V, H = arnoldi_residuals(X_c, v_0; msteps=msteps, num=num)
+println("Residuals matrix:")
+println(residuals)
 
-# # Visualize the semilog plot of the residuals
-# iters = 1:msteps
-# labels = ["λ₁", "λ₂", "λ₃", "λ₄", "λ₅"]
+# Visualize the semilog plot of the residuals
+iters = 1:msteps
+labels = ["λ₁", "λ₂", "λ₃", "λ₄", "λ₅"]
 
-# plt = plot(;
-#     xlabel="Iteration",
-#     ylabel="Relative Residuals",
-#     yscale=:log10,
-#     yrange=(1e-16, 1e0),
-#     title="Arnoldi Method Convergence"
-# )
-
-
-# for j in 1:num
-#     plot!(plt, iters[1:msteps], residuals[j, :], label=labels[j])
-# end
-# savefig(plt, "arnoldi_convergence.png")
+plt = plot(;
+    xlabel="Iteration",
+    ylabel="Relative Residuals",
+    yscale=:log10,
+    yrange=(1e-16, 1e0),
+    title="Arnoldi Method Convergence"
+)
 
 
-# # Display the eigenfaces corresponding to the five largest eigenvalues
-# kfinal = size(H, 2)
-# Hk_final = H[1:kfinal, 1:kfinal]
-# eig_final = eigen(Hk_final)
-# λs_final = eig_final.values
-# Ys_final = eig_final.vectors
+for j in 1:num
+    plot!(plt, iters[1:msteps], residuals[j, :], label=labels[j])
+end
+savefig(plt, "arnoldi_convergence.png")
 
-# idx = sortperm(abs.(λs_final), rev=true)[1:num]
-# λs_top = λs_final[idx]
-# Ys_top = Ys_final[:, idx]
 
-# Vk_final = V[:, 1:kfinal]
+# Display the eigenfaces corresponding to the five largest eigenvalues
+kfinal = size(H, 2)
+Hk_final = H[1:kfinal, 1:kfinal]
+eig_final = eigen(Hk_final)
+λs_final = eig_final.values
+Ys_final = eig_final.vectors
 
-# for j in 1:5
-#     y_j = Ys_top[:, j]
-#     eigenvector_j = Vk_final * y_j
-#     eigenface_j = reshape(eigenvector_j, 64, 64)
-#     save("eigenface$(j).png", normalize_image(eigenface_j))
-# end
+idx = sortperm(abs.(λs_final), rev=true)[1:num]
+λs_top = λs_final[idx]
+Ys_top = Ys_final[:, idx]
 
-# #=
-# The spookist eigenface in the first 20 eigenfaces.
-# =#
-# msteps = 35
-# num = 20
-# residuals, V, H = arnoldi_residuals(X_c, v_0; msteps=msteps, num=num)
-# kfinal = size(H, 2)
-# Hk_final = H[1:kfinal, 1:kfinal]
-# eig_final = eigen(Hk_final)
+Vk_final = V[:, 1:kfinal]
 
-# λs = eig_final.values
-# Ys = eig_final.vectors
+for j in 1:5
+    y_j = Ys_top[:, j]
+    eigenvector_j = Vk_final * y_j
+    eigenface_j = reshape(eigenvector_j, 64, 64)
+    save("eigenface$(j).png", normalize_image(eigenface_j))
+end
 
-# idx = sortperm(abs.(λs), rev=true)[1:num]
+#=
+The spookist eigenface in the first 20 eigenfaces.
+=#
+msteps = 35
+num = 20
+residuals, V, H = arnoldi_residuals(X_c, v_0; msteps=msteps, num=num)
+kfinal = size(H, 2)
+Hk_final = H[1:kfinal, 1:kfinal]
+eig_final = eigen(Hk_final)
 
-# Vk_final = V[:, 1:kfinal]
+λs = eig_final.values
+Ys = eig_final.vectors
 
-# for j in 1:num
-#     y_j = Ys[:, idx[j]]
-#     eigenface_vec = Vk_final * y_j
-#     eigenface_img = reshape(eigenface_vec, 64, 64)
-#     save("arnoldi_eigenface$(j).png", normalize_image(eigenface_img))
-#     save("arnoldi_eigenface_neg$(j).png", normalize_image(-eigenface_img))
-# end
+idx = sortperm(abs.(λs), rev=true)[1:num]
+
+Vk_final = V[:, 1:kfinal]
+
+for j in 1:num
+    y_j = Ys[:, idx[j]]
+    eigenface_vec = Vk_final * y_j
+    eigenface_img = reshape(eigenface_vec, 64, 64)
+    save("arnoldi_eigenface$(j).png", normalize_image(eigenface_img))
+    save("arnoldi_eigenface_neg$(j).png", normalize_image(-eigenface_img))
+end
