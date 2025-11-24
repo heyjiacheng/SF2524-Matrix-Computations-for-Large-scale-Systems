@@ -2,11 +2,16 @@
 # (a) Matrix-vector product timing
 # (c) Backslash timing
 # (d) Preconditioner accuracy and timing comparison
+# (e) Preconditioned iterative methods
 
 using LinearAlgebra
 using MAT
 using SparseArrays
 using Statistics
+using Plots
+
+# Import helper functions from hw2_functions.jl
+include("hw2_functions.jl")
 
 """
 Load heatsink data and build the reduced system matrix A.
@@ -304,7 +309,147 @@ function main_6d()
     println("\n" * "=" ^ 60)
 end
 
+"""
+Main function for Problem 6(e): Preconditioned iterative methods
+"""
+function main_6e()
+    println("=" ^ 60)
+    println("Problem 6(e): Preconditioned Iterative Methods")
+    println("=" ^ 60)
+
+    maxiter = 100
+    tol = 1e-20  # Very small tolerance to run all 100 iterations
+
+    for X in [1, 2]
+        println("\n--- Model X = $X ---")
+
+        # Build matrix A
+        A, N_total, n_free = build_heatsink_matrix(X)
+
+        # Load preconditioner
+        T1, T2 = load_preconditioner(X)
+
+        # Build diagonal preconditioner D = diag(A)
+        D = spdiagm(0 => diag(A))
+
+        # Random right-hand side
+        b = randn(n_free)
+
+        println("Matrix size: $n_free × $n_free")
+        println("Running $maxiter iterations for all methods...")
+
+        # Warm-up runs
+        println("Warm-up runs...")
+        _ = gmres_diag_precond(A, b, D, tol=1e-10, maxiter=5)
+        _ = gmres_left_precond(A, b, T1, T2, tol=1e-10, maxiter=5)
+        _ = pcg_diag(A, b, D, tol=1e-10, maxiter=5)
+        _ = pcg(A, b, T1, T2, tol=1e-10, maxiter=5)
+
+        # Run all methods
+        println("Running GMRES with diagonal preconditioner...")
+        x_gmres_D, res_gmres_D = gmres_diag_precond(A, b, D, tol=tol, maxiter=maxiter)
+
+        println("Running GMRES with M preconditioner...")
+        x_gmres_M, res_gmres_M = gmres_left_precond(A, b, T1, T2, tol=tol, maxiter=maxiter)
+
+        println("Running PCG with diagonal preconditioner...")
+        x_pcg_D, res_pcg_D = pcg_diag(A, b, D, tol=tol, maxiter=maxiter)
+
+        println("Running PCG with M preconditioner...")
+        x_pcg_M, res_pcg_M = pcg(A, b, T1, T2, tol=tol, maxiter=maxiter)
+
+        # Print final residuals
+        println("\nFinal relative residuals after $maxiter iterations:")
+        println("  GMRES + D: $(res_gmres_D[end])")
+        println("  GMRES + M: $(res_gmres_M[end])")
+        println("  PCG + D:   $(res_pcg_D[end])")
+        println("  PCG + M:   $(res_pcg_M[end])")
+
+        # Generate convergence plot
+        println("\nGenerating convergence plot...")
+
+        iter_gmres_D = 0:(length(res_gmres_D)-1)
+        iter_gmres_M = 0:(length(res_gmres_M)-1)
+        iter_pcg_D = 0:(length(res_pcg_D)-1)
+        iter_pcg_M = 0:(length(res_pcg_M)-1)
+
+        p = plot(
+            xlabel="Iteration",
+            ylabel="||Ax_m - b||₂/||b||",
+            yscale=:log10,
+            legend=:topright,
+            ylims=(1e-14, 1e1),
+            xlims=(0, 100),
+            grid=true,
+            size=(800, 600)
+        )
+
+        plot!(p, iter_gmres_D, res_gmres_D,
+              label="GMRES with precond D",
+              linestyle=:dash,
+              color=:black,
+              linewidth=1.5)
+
+        plot!(p, iter_gmres_M, res_gmres_M,
+              label="GMRES with precond M",
+              linestyle=:solid,
+              color=:red,
+              linewidth=1.5)
+
+        plot!(p, iter_pcg_D, res_pcg_D,
+              label="PCG with precond D",
+              linestyle=:dashdot,
+              color=:blue,
+              linewidth=1.5)
+
+        plot!(p, iter_pcg_M, res_pcg_M,
+              label="PCG with precond M",
+              linestyle=:solid,
+              color=:green,
+              linewidth=1.5)
+
+        # Save figure
+        filename = "problem6e_X$(X).png"
+        savefig(p, filename)
+        println("Saved: $filename")
+
+        # Display plot
+        display(p)
+
+        # Analysis: Which method is best?
+        println("\n[Analysis]")
+        final_res = [
+            ("GMRES + D", res_gmres_D[end]),
+            ("GMRES + M", res_gmres_M[end]),
+            ("PCG + D", res_pcg_D[end]),
+            ("PCG + M", res_pcg_M[end])
+        ]
+        sort!(final_res, by=x->x[2])
+
+        println("  Best method (lowest final residual): $(final_res[1][1]) with residual $(final_res[1][2])")
+
+        # Find iteration to reach 1e-5 accuracy
+        println("\n  Iterations to reach relative residual ≤ 1e-5:")
+        for (method_name, residuals) in [
+            ("GMRES + D", res_gmres_D),
+            ("GMRES + M", res_gmres_M),
+            ("PCG + D", res_pcg_D),
+            ("PCG + M", res_pcg_M)
+        ]
+            idx = findfirst(r -> r <= 1e-5, residuals)
+            if idx !== nothing
+                println("    $method_name: $(idx-1) iterations")
+            else
+                println("    $method_name: Did not reach 1e-5")
+            end
+        end
+    end
+
+    println("\n" * "=" ^ 60)
+end
+
 # Run all parts
-main()      # Problem 6(a)
-main_6c()   # Problem 6(c)
-main_6d()   # Problem 6(d)
+# main()      # Problem 6(a)
+# main_6c()   # Problem 6(c)
+# main_6d()   # Problem 6(d)
+main_6e()   # Problem 6(e)

@@ -245,3 +245,286 @@ function gmres_timed(A, b; tol=1e-10, maxiter=100)
     return x, residuals, timestamps
 end
 
+
+# ============================================================================
+# Left-preconditioned GMRES
+# ============================================================================
+"""
+    gmres_left_precond(A, b, T1, T2; tol=1e-10, maxiter=100)
+
+Left-preconditioned GMRES: solves Ax = b using GMRES on M^{-1}A
+where M^{-1} = T2^{-1}T1^{-1}.
+
+# Arguments
+- `A`: Coefficient matrix
+- `b`: Right-hand side vector
+- `T1`, `T2`: Triangular preconditioner matrices (M^{-1} = T2^{-1}T1^{-1})
+- `tol`: Tolerance for convergence (default=1e-10)
+- `maxiter`: Maximum number of iterations (default=100)
+
+# Returns
+- `x`: Solution vector
+- `residuals`: Vector of ||Ax - b||_2 / ||b||_2 at each iteration
+"""
+function gmres_left_precond(A, b, T1, T2; tol=1e-10, maxiter=100)
+    n = length(b)
+    T = promote_type(eltype(A), eltype(b))
+
+    # Initial residual r0 = b - Ax0 = b (since x0 = 0)
+    r0 = T.(b)
+    bnorm = norm(r0)
+
+    # Apply left preconditioner to initial residual
+    z0 = T2 \ (T1 \ r0)  # z0 = M^{-1} * r0
+    β = norm(z0)
+
+    residuals = Float64[]
+    push!(residuals, 1.0)  # Initial relative residual
+
+    if bnorm < tol * bnorm
+        return zeros(T, n), residuals
+    end
+
+    Q = zeros(T, n, maxiter + 1)
+    H = zeros(T, maxiter + 1, maxiter)
+    Q[:, 1] = z0 / β  # Start with preconditioned residual
+
+    e1 = zeros(T, maxiter + 1)
+    e1[1] = 1.0
+
+    x = zeros(T, n)
+
+    for k = 1:maxiter
+        # Arnoldi with left preconditioning: w = M^{-1} * A * Q[:, k]
+        v = A * Q[:, k]
+        w = T2 \ (T1 \ v)  # Apply M^{-1} = T2^{-1}T1^{-1}
+
+        # Double Gram-Schmidt
+        h = zeros(T, k)
+        for j = 1:k
+            h[j] = dot(Q[:, j], w)
+            w .-= h[j] * Q[:, j]
+        end
+        for j = 1:k
+            δ = dot(Q[:, j], w)
+            h[j] += δ
+            w .-= δ * Q[:, j]
+        end
+        H[1:k, k] .= h
+
+        H[k+1, k] = norm(w)
+        if abs(H[k+1, k]) < 1e-14
+            # Breakdown
+            y = H[1:k, 1:k] \ (β * e1[1:k])
+            x = Q[:, 1:k] * y
+            push!(residuals, norm(b - A * x) / bnorm)
+            break
+        end
+
+        Q[:, k+1] = w / H[k+1, k]
+
+        # Solve least squares problem
+        y = H[1:(k+1), 1:k] \ (β * e1[1:(k+1)])
+        x = Q[:, 1:k] * y
+
+        res_norm = norm(b - A * x) / bnorm
+        push!(residuals, res_norm)
+
+        if res_norm < tol
+            break
+        end
+    end
+
+    return x, residuals
+end
+
+"""
+    gmres_diag_precond(A, b, D; tol=1e-10, maxiter=100)
+
+Left-preconditioned GMRES with diagonal preconditioner D.
+"""
+function gmres_diag_precond(A, b, D; tol=1e-10, maxiter=100)
+    n = length(b)
+    T = promote_type(eltype(A), eltype(b))
+
+    r0 = T.(b)
+    bnorm = norm(r0)
+
+    # Apply left preconditioner to initial residual
+    z0 = D \ r0  # z0 = D^{-1} * r0
+    β = norm(z0)
+
+    residuals = Float64[]
+    push!(residuals, 1.0)
+
+    if bnorm < tol * bnorm
+        return zeros(T, n), residuals
+    end
+
+    Q = zeros(T, n, maxiter + 1)
+    H = zeros(T, maxiter + 1, maxiter)
+    Q[:, 1] = z0 / β  # Start with preconditioned residual
+
+    e1 = zeros(T, maxiter + 1)
+    e1[1] = 1.0
+
+    x = zeros(T, n)
+
+    for k = 1:maxiter
+        # Arnoldi with diagonal preconditioning: w = D^{-1} * A * Q[:, k]
+        v = A * Q[:, k]
+        w = D \ v
+
+        # Double Gram-Schmidt
+        h = zeros(T, k)
+        for j = 1:k
+            h[j] = dot(Q[:, j], w)
+            w .-= h[j] * Q[:, j]
+        end
+        for j = 1:k
+            δ = dot(Q[:, j], w)
+            h[j] += δ
+            w .-= δ * Q[:, j]
+        end
+        H[1:k, k] .= h
+
+        H[k+1, k] = norm(w)
+        if abs(H[k+1, k]) < 1e-14
+            y = H[1:k, 1:k] \ (β * e1[1:k])
+            x = Q[:, 1:k] * y
+            push!(residuals, norm(b - A * x) / bnorm)
+            break
+        end
+
+        Q[:, k+1] = w / H[k+1, k]
+
+        y = H[1:(k+1), 1:k] \ (β * e1[1:(k+1)])
+        x = Q[:, 1:k] * y
+
+        res_norm = norm(b - A * x) / bnorm
+        push!(residuals, res_norm)
+
+        if res_norm < tol
+            break
+        end
+    end
+
+    return x, residuals
+end
+
+
+# ============================================================================
+# Preconditioned Conjugate Gradient (PCG)
+# ============================================================================
+"""
+    pcg(A, b, T1, T2; tol=1e-10, maxiter=100)
+
+Preconditioned Conjugate Gradient method with M^{-1} = T2^{-1}T1^{-1}.
+
+Efficient implementation with only 1 matrix-vector product with A
+and 1 preconditioner application per iteration.
+
+# Arguments
+- `A`: Symmetric positive definite matrix
+- `b`: Right-hand side vector
+- `T1`, `T2`: Triangular preconditioner matrices
+- `tol`: Tolerance for convergence (default=1e-10)
+- `maxiter`: Maximum number of iterations (default=100)
+
+# Returns
+- `x`: Solution vector
+- `residuals`: Vector of ||Ax - b||_2 / ||b||_2 at each iteration
+"""
+function pcg(A, b, T1, T2; tol=1e-10, maxiter=100)
+    n = length(b)
+    T = promote_type(eltype(A), eltype(b))
+
+    x = zeros(T, n)
+    r = T.(b)  # r_0 = b - Ax_0 = b (since x_0 = 0)
+    z = T2 \ (T1 \ r)  # z_0 = M^{-1} r_0
+    p = copy(z)
+    rz = real(dot(r, z))
+
+    bnorm = norm(b)
+    residuals = Float64[]
+    push!(residuals, norm(r) / bnorm)
+
+    for k = 1:maxiter
+        Ap = A * p  # Only matrix-vector product with A
+        pAp = real(dot(p, Ap))
+
+        if pAp == 0
+            break
+        end
+
+        α = rz / pAp
+        x .+= α .* p
+        r .-= α .* Ap
+
+        # Check convergence
+        res_norm = norm(r) / bnorm
+        push!(residuals, res_norm)
+
+        if res_norm < tol
+            break
+        end
+
+        # Apply preconditioner
+        z = T2 \ (T1 \ r)
+        rz_new = real(dot(r, z))
+        β = rz_new / rz
+        p = z .+ β .* p
+        rz = rz_new
+    end
+
+    return x, residuals
+end
+
+"""
+    pcg_diag(A, b, D; tol=1e-10, maxiter=100)
+
+Preconditioned Conjugate Gradient with diagonal preconditioner D.
+"""
+function pcg_diag(A, b, D; tol=1e-10, maxiter=100)
+    n = length(b)
+    T = promote_type(eltype(A), eltype(b))
+
+    x = zeros(T, n)
+    r = T.(b)
+    z = D \ r
+    p = copy(z)
+    rz = real(dot(r, z))
+
+    bnorm = norm(b)
+    residuals = Float64[]
+    push!(residuals, norm(r) / bnorm)
+
+    for k = 1:maxiter
+        Ap = A * p
+        pAp = real(dot(p, Ap))
+
+        if pAp == 0
+            break
+        end
+
+        α = rz / pAp
+        x .+= α .* p
+        r .-= α .* Ap
+
+        res_norm = norm(r) / bnorm
+        push!(residuals, res_norm)
+
+        if res_norm < tol
+            break
+        end
+
+        z = D \ r
+        rz_new = real(dot(r, z))
+        β = rz_new / rz
+        p = z .+ β .* p
+        rz = rz_new
+    end
+
+    return x, residuals
+end
+
